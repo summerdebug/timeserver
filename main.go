@@ -14,6 +14,16 @@ type LogEntry struct {
 	Path      string `json:"path"`
 }
 
+type TimeResponse struct {
+	DayOfWeek  string `json:"day_of_week"`
+	DayOfMonth int    `json:"day_of_month"`
+	Month      string `json:"month"`
+	Year       int    `json:"year"`
+	Hour       int    `json:"hour"`
+	Minute     int    `json:"minute"`
+	Second     int    `json:"second"`
+}
+
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		logEntry := LogEntry{
@@ -33,10 +43,22 @@ func timeHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
 		return
 	}
-	timeNow := time.Now().Format(time.RFC3339)
-	_, err := fmt.Fprintln(w, timeNow)
-	if err != nil {
-		http.Error(w, "Failed to write response", http.StatusInternalServerError)
+	t := time.Now()
+	if r.Header.Get("Accept") == "application/json" {
+		response := TimeResponse{
+			DayOfWeek:  t.Weekday().String(),
+			DayOfMonth: t.Day(),
+			Month:      t.Month().String(),
+			Year:       t.Year(),
+			Hour:       t.Hour(),
+			Minute:     t.Minute(),
+			Second:     t.Second(),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+	} else {
+		w.Header().Set("Content-Type", "text/plain")
+		fmt.Fprintln(w, t.Format(time.RFC3339))
 	}
 }
 
