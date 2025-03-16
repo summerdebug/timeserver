@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -62,13 +63,44 @@ func timeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func TimeoutMiddleware(timeoutMs int) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Create a context with timeout
+			ctx, cancel := context.WithTimeout(r.Context(), time.Duration(timeoutMs)*time.Millisecond)
+			defer cancel()
+
+			// Attach the new context to the request
+			r = r.WithContext(ctx)
+
+			// Create a channel to detect when handler completes
+			done := make(chan struct{})
+			go func() {
+				next.ServeHTTP(w, r)
+				close(done)
+			}()
+
+			select {
+			case <-ctx.Done():
+				// Context timeout reached
+				if ctx.Err() == context.DeadlineExceeded {
+					http.Error(w, "Request timed out", http.StatusGatewayTimeout)
+				}
+			case <-done:
+				// Handler finished within the timeout
+			}
+		})
+	}
+}
+
 func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", timeHandler)
 
-	loggedMux := loggingMiddleware(mux)
+	timeoutMw := TimeoutMiddleware(1000)
+	handlerChain := timeoutMw(loggingMiddleware(mux))
 
-	err := http.ListenAndServe(":8080", loggedMux)
+	err := http.ListenAndServe(":8080", handlerChain)
 	if err != nil {
 		fmt.Println("Error starting server: ", err)
 		return
